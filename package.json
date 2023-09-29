@@ -2,6 +2,9 @@
   "dependencies": {
     "@httptoolkit/httpolyglot": "^2.1.1",
     "fetch-h2": "^3.0.2",
-    "http2-wrapper": "^2.2.0"
+    "http2-wrapper": "^2.2.0",
+    "nxapi": "^1.6.1",
+    "persistent-cache": "^1.1.2",
+    "undici": "^5.25.2"
   }
 }
