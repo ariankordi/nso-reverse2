@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@derhuerst/systemd": "^0.5.0",
     "@httptoolkit/httpolyglot": "^2.1.1",
     "fetch-h2": "^3.0.2",
     "http2-wrapper": "^2.2.0",
