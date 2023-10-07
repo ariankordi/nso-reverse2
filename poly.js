@@ -5,9 +5,6 @@ const { readFileSync } = require('fs');
 // cache directory
 const { tmpdir } = require('os');
 
-// paths are joined during nxapi imports
-const { join } = require('path');
-
 // ad-hoc functions that help out with reverse proxying
 const {
 	filterHeaders,
@@ -16,6 +13,14 @@ const {
 	pipeResponseCallback,
 	logAccess,
 } = require('./reverse-proxy-helpers.js');
+
+const {
+	nxapiInit,
+	setCachedWebServiceToken,
+	getWebServiceToken,
+    // handlers?
+	getTokenInterceptHandler,
+} = require('./nxapi.js');
 
 const persistentCache = require('persistent-cache');
 const cache = persistentCache({
@@ -27,142 +32,8 @@ const cache = persistentCache({
 	// then we could just avoid any code involving expiresIn entirely but NOPE
 	//duration: 1000 * 3600 * 24 //one day
 });
-let paths, getToken, initStorage;
-let /*webServices, */webServiceMap;
-// NOTE: should token be included?
-let storage, usernsid, naToken;
-// compared against what mitm'ed GetToken is requesting
-let nsoUserID;
-async function nxapiInit() {
-	// required to make http_proxy work here
-	//const { setGlobalDispatcher } = require('undici');
-	console.log('initializing nxapi (may fail right now)...');
-	const nxapiExport = require.resolve('nxapi');
-	// import() wrapper for paths within nxapi dist..!! (join = path.join btw)
-	const nxapiInternal = m => import(join(nxapiExport, '../../' + m));
-    await Promise.all([
-		// handle setting http proxy (newer versions of nxapi)
-		/*nxapiInternal('util/undici-proxy.js').then(m => {
-			// NOTE: proxy code NOT added to upstream reverse proxy yet
-			// effectively, only nxapi would be proxied with this.
-			const agent = m.buildEnvironmentProxyAgent();
-			setGlobalDispatcher(agent);
-			// handle if it fails because nxapi 1.6.1 does not have this
-		}).catch(err => {
-			console.error('could not load undici-proxy.js, nxapi will not pass through HTTP_PROXY:\n', err);
-		}),*/
-		// decided that proxy may not be fully necessary bc proxychains works
-        nxapiInternal('util/useragent.js').then(m => {
-			// add user agent, pretending to be nxapi-cli
-			m.addUserAgent('nxapi-cli');
-			if(process.env.NXAPI_USER_AGENT) {
-				// TODO: perhaps add my own user-agent, or remove this, or both
-				m.addUserAgent(process.env.NXAPI_USER_AGENT);
-			}
-		}),
-		// better way to do these????
-        nxapiInternal('util/storage.js').then(m => {
-			paths = m.paths
-			initStorage = m.initStorage
-		}),
-        nxapiInternal('common/auth/coral.js').then(m => {getToken = m.getToken})
-    ]).then(async () => {
-		// THEN fetch web services, this is where errors will happen
-		console.log('nxapi loaded! now authenticating...');
-		// some of these are now persisted throughout functions
-		// TODO: lock storage behind a mutex?
-		storage = await initStorage(paths.data);
-		usernsid = await storage.getItem('SelectedUser');
-		// if SelectedUser is undefined then persist is most likely unpopulated
-		if(usernsid === undefined) {
-			// nxapi is not authenticated/set up!! instruct user to run nso auth
-			console.log('\x1b[31mno selected user: \x1b[1mnxapi is not authenticated!\x1b[0m try running this:')
-			const cliEntry = join(nxapiExport, '../../cli-entry.js');
-			console.log(`\x1b[2m${cliEntry} nso auth\x1b[0m\nyou should also be able to log into the nxapi desktop app? try that and come back.\nexiting`)
-			process.exit(1)
-		}
-		console.log(`nxapi selected usernsid: \x1b[1m${usernsid}\x1b[0m`);
-		// the nintendo account token does not often change..!
-		naToken = await storage.getItem('NintendoAccountToken.' + usernsid);
-		// the nso token, on the other hand, does.
-		const { nso, data } = await getToken(storage, naToken);
-		// nso user id is not the same as nintendo account id
-		nsoUserID = data['nsoAccount']['user']['id'];
-		console.log(`logged in to nxapi as \x1b[1m${data.user.nickname}\x1b[0m (nso user id: \x1b[1m${nsoUserID}\x1b[0m)`);
-		console.log(`\x1b[2mtodo: add directions to log into nxapi in general but also change current user or specify it as cli argument\x1b[0m`)
-		// get language so we can find a cached version
-		// NOTE: sadly this means that it's "mandatory" to use getToken
-		// TODO: cache language in persistent-cache...
-		const language = data.user.language;
-		let webServices;
-		const webServicesCacheKey = 'CachedWebServicesList.' + language;
-		const webServicesCached = await storage.getItem(webServicesCacheKey);
-		if(webServicesCached) {
-			// use cached version...
-			webServices = webServicesCached.webservices
-		} else {
-			// ... otherwise fetch if cached version doesn't work
-			webServices = await nso.getWebServices();
-			// store it but without sync so there is a promise that can FAIL!
-			storage.setItem(webServicesCacheKey, {
-				webservices: webServices,
-				updated_at: Date.now(),
-				language: data.user.language,
-				user: data.user.id,
-			});
-		}
-		console.log(`\x1b[32msuccessfully fetched ${webServices.length} web services from ${webServicesCached ? 'cache' : 'getWebServices()'}\x1b[0m`);
-		// make a map of webservices where...
-		// key is hostname and value is the ID
-		webServiceMap = webServices.reduce((obj, service) => {
-			const hostname = new URL(service.uri).hostname;
-			//obj[hostname] = service.id;
-			obj.set(hostname, service.id);
-			return obj;
-		}, new Map());
-	});
-}
-
-// function that abstracts setting a cached webservicetoken...
-async function setCachedWebServiceToken(webserviceID, token, yourUserNSID=undefined) {
-	// TODO MAKE THIS MORE EFFICIENT
-	let localUserNSID = usernsid || yourUserNSID;
-	/*if(usernsid === undefined) {
-		const storage = await initStorage(paths.data);
-		usernsid = await storage.getItem('SelectedUser');
-	}*/
-
-	// expiresIn is merely a unit of time of how long the token lasts
-	// add tokenExpiry to the webServiceToken object...!!
-	token.tokenExpiry = Date.now() + (token.expiresIn * 1000);
-	// store cache async, no-op when done
-	const cacheKey = `WebServiceToken.${localUserNSID}.${webserviceID}`;
-	cache.put(cacheKey, token, () => {});
-}
-
-async function getWebServiceToken(webserviceID) {
-	console.log('grabbing a webservicetoken for id: ' + webserviceID)
-	// redo getting storage and user all over again
-	// ... but this stuff SHOULD be cached.
-	/*const storage = await initStorage(paths.data);
-	const usernsid = await storage.getItem('SelectedUser');
-	const naToken = await storage.getItem('NintendoAccountToken.' + usernsid);
-	*/const { nso } = await getToken(storage, naToken);
-	// get servicetoken from cache or not!!!!
-	const cacheKey = `WebServiceToken.${usernsid}.${webserviceID}`;
-	const cacheResult = cache.getSync(cacheKey);
-	if(cacheResult && cacheResult.tokenExpiry > Date.now()) {
-		console.log(`fetched token for ${webserviceID} from \x1b[32mcache\x1b[0m`);
-		return cacheResult.accessToken;
-	}
-	//if(cacheResult.tokenExpiry < Date.now()) { console.log('cache expired...') }
-	let webServiceToken = await nso.getWebServiceToken(webserviceID);
-	setCachedWebServiceToken(webserviceID, webServiceToken, usernsid);
-	console.log(`fetched token for ${webserviceID} from \x1b[31mgetWebServiceToken()\x1b[0m`);
-	return webServiceToken.accessToken;
-}
-
-
+// defined by nxapiInit
+let webServiceMap;
 // js file to inject into web service pages
 // so that they can store persistent data and refresh tokens
 // this has a js extension for the purposes of syntax highlighting
@@ -230,33 +101,19 @@ const coralAPIInterceptionHandlers = {
 			console.log('GetWebServiceToken response does not have result...');
 		}
 	},
-	'/Account/GetToken': async (data, {}, req) => {
-		//console.log('\x1b[1mMMM MMM MMMM COME GET YOUR \x1b[0mnso account token\x1b[1m RIGHT HERE!!!!!!!!!!\x1b[0m:\n', data)
-		if(data.result === undefined) {
-			console.log('GetToken response does not have result...');
+	// defined separately in nxapi handlers
+	'/Account/GetToken': getTokenInterceptHandler,
+	// on accounts.nintendo.com because the same callback is used!
+	'/connect/1.0.0/api/token': (data, {}, {}) => {
+		// don't set cache if there is no access token
+		// NOTE i don't actually know the format for if there is an error
+		if(data.access_token === undefined) {
+			console.log('no access token in nintendo account response...???');
 			return;
 		}
-		//await storage.getItem('NsoToken.' + naToken);
-		// first pre-process and warn if nso user id differs from nxapi one
-		const thisNSOUserID = data['result']['user']['id'];
-		if(thisNSOUserID !== nsoUserID) {
-			console.log(`\x1b[31mnso user id received from intercepted GetToken request (${thisNSOUserID}) does not match global one ${nsoUserID}...!!!!\x1b[0m`);
-			console.log('is the mobile app logged into the same user as nxapi?');
-		}
-		// grab cached NsoToken and inject our own details in
-		// mostly because it has information like... f data,
-		// ... znca version, and most notably PROFILE that are unavailable
-		const cacheKey = 'NsoToken.' + naToken;
-		const nsoTokenData = await storage.getItem(cacheKey);
-		// append our own data from here
-		nsoTokenData['nsoAccount'] = data.result;
-		nsoTokenData['credential'] = data.result.webApiServerCredential;
-		// TODO: CACHE NINTENDO ACCOUNT RESPONSE
-		// AND THEN COPY OVER ITS ACCESS_TOKEN FROM HERE TOO!!!
-		nsoTokenData['nintendoAccountToken']['id_token'] = req.headers['authorization'].split('Bearer ')[1]
-		// write back data...
-		storage.setItem(cacheKey, nsoTokenData);
-		console.log('set nso token cache...');
+		console.log('set nintendo account token cache...');
+		// async once again (NO CALLBACK) ... NOTE: may cause race condition?
+		cache.put('latest-na-token-response', data, ()=>{});
 	}
 }
 
@@ -291,6 +148,7 @@ const coralAPICallback = (res, reqBody, interceptionHandler) => {
 			// buffer response out first, continue processing here
 			let bodyObj;
 			try {
+				// ALWAYS decode json reponse - NOTE: no empty check!
 				bodyObj = JSON.parse(bodyBuf);
 			} catch(e) {
 				console.error('FAILURE WHEN DECODING JSON RESPONSE IN CORAL API INTERCEPTION:', e)
@@ -300,7 +158,11 @@ const coralAPICallback = (res, reqBody, interceptionHandler) => {
 			// TODO error check all of this
 			const reqBodyStr = reqBody.toString();
 			let reqBodyObj;
-			if(reqBodyStr.length) {
+			// check that request body length is not falsey
+			if(reqBodyStr.length
+			// .. and json content type is actually set
+			&& res.req.headers['content-type'].includes('json')
+			) {
 				reqBodyObj = JSON.parse(reqBodyStr);
 			}
 			// req from response object should be identical
@@ -313,6 +175,8 @@ const coralAPICallback = (res, reqBody, interceptionHandler) => {
 // requests over this size will stop being buffered
 const MAX_REQUEST_BODY_SIZE = 1 * 1024 * 1024; // 1 MB
 
+const ZNC_HOSTNAME = 'api-lp1.znc.srv.nintendo.net';
+const NA_HOSTNAME = 'accounts.nintendo.com';
 async function requestHandler(req, res) {
 	logAccess(req);
 	// test if this is an http proxy request and not a normal one
@@ -365,7 +229,9 @@ async function requestHandler(req, res) {
 	// but req.authority is only on http2, host header is only on http1
 	const hostname = req.authority || req.headers.host;
 	// reverse proxy to znc api to intercept various tokens
-	if(hostname === 'api-lp1.znc.srv.nintendo.net') {
+	if(hostname === ZNC_HOSTNAME
+	|| hostname === NA_HOSTNAME
+	) {
 		// TODO: selectively buffer based on url?? but then you have to choooos
 		const interceptedEndpoint = Object.keys(coralAPIInterceptionHandlers)
 									.find(endpoint => req.url.includes(endpoint));
@@ -418,13 +284,14 @@ async function requestHandler(req, res) {
 		// use our callback to always intercept and check response headers
 		return handleReverseProxy(req, hostname, webServiceCallback(res));
 	}
+	/* for testing..!!
 	if(hostname === 'ipinfo.io'
 	|| hostname === 'mii-secure.cdn.nintendo.net'
 	|| hostname === 'quic.rocks:4433'
 	|| hostname === 'accounts.nintendo.com'
 	) {
 		return handleReverseProxy(req, hostname, pipeResponseCallback(res));
-	}
+	}*/
 	res.writeHead(404, {'Content-Type': 'text/html'});
 	res.end(`<pre style=text-wrap:wrap>where are you? are you lost? here's some anime feet to help you get back on track:\n<img src="https://pbs.twimg.com/media/F4_waFgaEAA1gzw.jpg"style=height:100%>`);
 }
@@ -452,14 +319,44 @@ process.on('uncaughtException', err => {
 		});
 	};
 }*/
+
+// yargs is included with nxapi
+const yargs = require('yargs/yargs');
+const { hideBin } = require('yargs/helpers');
+
+// use yargs to define server params
+//, as well as usernsid
+const argv = yargs(hideBin(process.argv))
+	.option('host', { default: 'localhost' })
+	.option('port', { type: 'number', default: 8443 })
+	.option('key', { default: __dirname + '/nintendo-net.key' })
+	.option('cert', { default: __dirname + '/nintendo-net.pem' })
+	// TODO IMPLEMENT THIS IMPLEMENT THIS IMPLEM
+	/*.option('usernsid', {
+		description: 'usernsid passed to nxapi instead of stored one',
+	})*/
+	.command('make-san', 'this will make a san.txt that you can use to generate certs. just run it, i\'ll explain everything')
+	.help()
+	.argv;
+
 // do nxapi init FIRST!
-nxapiInit().then(() => {
-	// TODO THIS LIB IS MONKEY PATCHED, LOOK INTO A BETTER WAY TO DO IT!!!!!!
-	// TODO FIGURE OUT BETTER MONKEY PATCHES FOR THIS
+nxapiInit(cache).then(wsMap => {
+	webServiceMap = wsMap;
+	// TODO: finish this, print out a san.txt usable for signing certificates and FULL INSTRUCTIONS with openssl on how to do this!!
+	if(argv['_'][0] === 'make-san') {
+		const hostnameMap = [...webServiceMap.keys(), ZNC_HOSTNAME, NA_HOSTNAME];
+		const sans = 'subjectAltName=DNS:'
+		+ hostnameMap.join(',DNS:');
+		console.log('\n\n')
+		console.error(sans);
+		console.log('\n\n\x1b[1mopen your ssl\x1b[0m');
+		return;
+	}
+	// NOTE: THIS LIB IS MONKEY PATCHED (import at top)
 	const server = httpolyglot.createServer({
 		// self-signed certs representing "*.nintendo.net"
-		key: readFileSync(__dirname + '/nintendo-net.key'),
-		cert: readFileSync(__dirname + '/nintendo-net.pem'),
+		key: readFileSync(argv.key),
+		cert: readFileSync(argv.cert),
 		// without this the server will not serve http2
 		ALPNProtocols: ['h2', 'http/1.1']
 	}, requestHandler);//errorHandlerWrapper(requestHandler))
@@ -472,8 +369,8 @@ nxapiInit().then(() => {
 		});
 	}
 	// TODO make this host:port customizable
-	server.listen(8443, () => {
-		console.log('now listening on port 8443');
+	server.listen(argv.port, argv.host, () => {
+		console.log(`now listening on ${argv.host}:${argv.port}`);
 	});
 });
 

@@ -1,6 +1,5 @@
 node_modules
 GITIGNORE THIS old planning notes
-package-lock.json
 
 *.pem
 *.key

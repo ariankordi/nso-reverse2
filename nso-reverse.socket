@@ -1,0 +1,9 @@
+[Unit]
+Description=nintendo switch online reverse proxy
+
+[Socket]
+#ListenStream=127.0.0.1:36017
+ListenStream=0.0.0.0:36017
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,14 @@
+lingering things left in nso-reverse2:
+
+* allow usernsid to be specified via cli?
+
+
+* implement command line arguments... (loaded by index.js???)
+* let you specify which certs to load, but ALSO a cli mode that will use services array to 
+* tackle the rest of the todos
+	* handle more errors where necessary
+
+consider rewriting splatnet-kindle:
+* in node, and it fetches gamewebtoken pre (or asynchronously with) web app (onGameWebTokenReceive).
+* it will actually be able to either request the internal nso-reverse2 server OR request nxapi directly..!!!
+Maria

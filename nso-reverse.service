@@ -1,0 +1,17 @@
+[Unit]
+Description=nintendo switch online reverse proxy
+Requires=%p.socket
+After=%p.socket
+
+[Service]
+#ExecStartPre=/bin/sleep 4
+#ExecStart=/lib/systemd/systemd-socket-proxyd 127.0.0.1:36018 --exit-idle-time=40min
+
+#WorkingDirectory=/home/arian/Downloads/nso reverse proxy
+#ExecStart=/usr/bin/python3 bruhy.py
+
+Environment=NXAPI_USER_AGENT="adhoc script by \".arian.\" on discord"
+ExecStart=/usr/bin/node %h/Downloads/nso-reverse2/poly.js
+
+[Install]
+WantedBy=multi-user.target
