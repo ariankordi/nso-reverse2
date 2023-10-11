@@ -97,12 +97,15 @@ async function nxapiInit(mainCache) {
 	// make a map of webservices where...
 	// key is hostname and value is the ID
 	// turned into webServiceMap in main
-	return webServices.reduce((obj, service) => {
+	const webServiceMap = webServices.reduce((obj, service) => {
 		const hostname = new URL(service.uri).hostname;
 		//obj[hostname] = service.id;
 		obj.set(hostname, service.id);
 		return obj;
 	}, new Map());
+	// to be put into web service url so that it loads properly
+	const naURLParts = `&na_country=${data.user.country}&na_lang=${data.user.language}`;
+	return { webServiceMap, naURLParts };
 }
 
 // function that abstracts setting a cached webservicetoken...

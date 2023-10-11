@@ -2,11 +2,17 @@ lingering things left in nso-reverse2:
 
 * allow usernsid to be specified via cli?
 
-
-* implement command line arguments... (loaded by index.js???)
-* let you specify which certs to load, but ALSO a cli mode that will use services array to 
+* finish and make a tutorial on the sans command
 * tackle the rest of the todos
 	* handle more errors where necessary
+* rename poly.js to index.js and make it the entrypoint of the package so it is clearer where THE CODE IS!
+* make httpolyglot do a straight through non-decrypting TLS proxy if the SNI matches something that doesn't uhhhhh UHHHHH?
+	* better patches for httpolyglot in general lol? just implement the CONNECT functionality from within.
+	
+* CLEANUP AND SIMPLIFICATION....
+* write readme, potentially rename project
+* include original nso-reverse project within
+* 
 
 consider rewriting splatnet-kindle:
 * in node, and it fetches gamewebtoken pre (or asynchronously with) web app (onGameWebTokenReceive).

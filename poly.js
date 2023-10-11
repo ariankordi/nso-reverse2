@@ -18,7 +18,7 @@ const {
 	nxapiInit,
 	setCachedWebServiceToken,
 	getWebServiceToken,
-    // handlers?
+	// handlers?
 	getTokenInterceptHandler,
 } = require('./nxapi.js');
 
@@ -33,7 +33,7 @@ const cache = persistentCache({
 	//duration: 1000 * 3600 * 24 //one day
 });
 // defined by nxapiInit
-let webServiceMap;
+let webServiceMap, naURLParts;
 // js file to inject into web service pages
 // so that they can store persistent data and refresh tokens
 // this has a js extension for the purposes of syntax highlighting
@@ -267,8 +267,25 @@ async function requestHandler(req, res) {
 		const serviceID = webServiceMap.get(hostname);
 		// check if we should inject a token into req headers
 		// it should be injected on / or with query parameters
-		// TODO you may want to always inject something like this: ?lang=en-US&na_country=US&na_lang=en-US
-		if(req.url === '/' || req.url.startsWith('/?')) {
+
+		// inject language parameters into url (causes nooklink to not load if omitted)
+		if(req.url === '/') {
+			// detect browser language
+			const acceptLanguage = req.headers['accept-language'];
+			// default language...
+			let lang = 'en-US';
+			if(acceptLanguage !== undefined) {
+				// select first language in accept-language list
+				lang = acceptLanguage.split(',')[0];
+			}
+			// naURLParts is generated in nxapiInit
+			const redirectTo = '/?lang=' + lang + naURLParts;
+			// redirect and return
+			res.writeHead(302, { 'Location': redirectTo });
+			return res.end();
+		}
+		// real handler, index with query param
+		if(req.url.startsWith('/?')) {
 			// fetch and inject gamewebtoken here...!
 			const token = await getWebServiceToken(serviceID)
 			/*.catch(err => {
@@ -293,7 +310,8 @@ async function requestHandler(req, res) {
 		return handleReverseProxy(req, hostname, pipeResponseCallback(res));
 	}*/
 	res.writeHead(404, {'Content-Type': 'text/html'});
-	res.end(`<pre style=text-wrap:wrap>where are you? are you lost? here's some anime feet to help you get back on track:\n<img src="https://pbs.twimg.com/media/F4_waFgaEAA1gzw.jpg"style=height:100%>`);
+	res.end(`<pre style=text-wrap:wrap>where are you? are you lost? here's some anime feet to help you get back on track:
+<img src="https://pbs.twimg.com/media/F4_waFgaEAA1gzw.jpg"style=height:100%>`);
 }
 
 process.on('uncaughtException', err => {
@@ -340,8 +358,9 @@ const argv = yargs(hideBin(process.argv))
 	.argv;
 
 // do nxapi init FIRST!
-nxapiInit(cache).then(wsMap => {
-	webServiceMap = wsMap;
+nxapiInit(cache).then(initParams => {
+	webServiceMap = initParams.webServiceMap;
+	naURLParts = initParams.naURLParts;
 	// TODO: finish this, print out a san.txt usable for signing certificates and FULL INSTRUCTIONS with openssl on how to do this!!
 	if(argv['_'][0] === 'make-san') {
 		const hostnameMap = [...webServiceMap.keys(), ZNC_HOSTNAME, NA_HOSTNAME];
@@ -363,12 +382,10 @@ nxapiInit(cache).then(wsMap => {
 	if(process.env.LISTEN_FDS) {
 		// handle systemd socket (VERY USE CASE SPECIFIC)
 		const { getListenArgs } = require('@derhuerst/systemd');
-		// TODO THIS IS UNTESTED!!
 		return server.listen(...getListenArgs(), () => {
 			console.log('server listening on systemd socket!!');
 		});
 	}
-	// TODO make this host:port customizable
 	server.listen(argv.port, argv.host, () => {
 		console.log(`now listening on ${argv.host}:${argv.port}`);
 	});
