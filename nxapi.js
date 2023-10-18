@@ -126,7 +126,7 @@ async function setCachedWebServiceToken(webserviceID, token, yourUserNSID=undefi
 }
 
 async function getWebServiceToken(webserviceID) {
-	console.log('grabbing a webservicetoken for id: ' + webserviceID)
+	console.log(`grabbing a webservicetoken for id: \x1b[1m{webserviceID}\x1b[0m`);
 	// redo getting storage and user all over again
 	// ... but this stuff SHOULD be cached.
 	/*const storage = await initStorage(paths.data);
@@ -161,7 +161,7 @@ async function getWebServiceToken(webserviceID) {
 }
 
 // might not belong here but it does use these variables over here
-async function getTokenInterceptHandler(data, reqBodyObj, req) {
+async function getTokenInterceptHandler(data, reqBodyObj, _) {
 	//console.log('\x1b[1mMMM MMM MMMM COME GET YOUR \x1b[0mnso account token\x1b[1m RIGHT HERE!!!!!!!!!!\x1b[0m:\n', data)
 	if(data.result === undefined) {
 		console.log('GetToken response does not have result...');

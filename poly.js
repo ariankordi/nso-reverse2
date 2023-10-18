@@ -1,5 +1,4 @@
-const httpolyglot = require('./httpolyglot-patched-index.js');// monkey patched version
-//require('@httptoolkit/httpolyglot');
+const httpolyglot = require('@httptoolkit/httpolyglot');
 // open certs and js inject file
 const { readFileSync } = require('fs');
 // cache directory
@@ -96,7 +95,7 @@ const coralAPIInterceptionHandlers = {
 		// sometimes response is an error and there is no result
 		if(data.result !== undefined) {
 			setCachedWebServiceToken(webserviceID, data.result);
-			console.log('set webservicetoken cache...');
+			console.log(`set webservicetoken cache for id: \x1b[1m{webserviceID}\x1b[0m...`);
 		} else {
 			console.log('GetWebServiceToken response does not have result...');
 		}
@@ -178,7 +177,6 @@ const MAX_REQUEST_BODY_SIZE = 1 * 1024 * 1024; // 1 MB
 const ZNC_HOSTNAME = 'api-lp1.znc.srv.nintendo.net';
 const NA_HOSTNAME = 'accounts.nintendo.com';
 async function requestHandler(req, res) {
-	logAccess(req);
 	// test if this is an http proxy request and not a normal one
 	if(req.url[0] !== '/') {
 		let url = new URL(req.url);
@@ -187,6 +185,7 @@ async function requestHandler(req, res) {
 		req.authority = url.hostname;
 		req.url = url.pathname;
 	}
+	logAccess(req);
 	if(req.url === '/_/request_gamewebtoken') {
 		// cors headers required because this will be fetched
 		const corsHeaders = {
@@ -379,6 +378,12 @@ nxapiInit(cache).then(initParams => {
 		// without this the server will not serve http2
 		ALPNProtocols: ['h2', 'http/1.1']
 	}, requestHandler);//errorHandlerWrapper(requestHandler))
+	// resolve HTTP CONNECT to httpolyglot handler (probably as TLS)
+	server.on('connect', (_, socket) => {
+		socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
+		// Recurse back and handle TLS (Client sent ClientHello)
+		socket._server.connectionListener(socket);
+	})
 	if(process.env.LISTEN_FDS) {
 		// handle systemd socket (VERY USE CASE SPECIFIC)
 		const { getListenArgs } = require('@derhuerst/systemd');
