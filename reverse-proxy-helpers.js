@@ -92,7 +92,8 @@ const wrapCompressedResponse = (response, headers) => {
 	// feel free to add those (or handle via a library, etc...)
 	// ... but this keeps it not too demanding of dependencies
 	if(headers['content-encoding'] === 'gzip') {
-		console.log('uncompressing this response...')
+		// italic console color, non-standard
+		console.log('\x1b[3muncompressing this response...\x1b[0m');
 		const gunzip = zlib.createGunzip();
 		// pass response through gzip decompressor
 		response.pipe(gunzip);
@@ -105,19 +106,38 @@ const wrapCompressedResponse = (response, headers) => {
 	return response;
 }
 
+// TODO: not imported from the same place
+const ZNC_HOSTNAME = 'api-lp1.znc.srv.nintendo.net';
+const NA_HOSTNAME = 'accounts.nintendo.com';
+// if a hostname ends with this, then it's most probably a web service
+const webServiceProbableSuffix = '.nintendo.net';
 // print access log line for use in requestHandler
 function logAccess(req) {
 	const timestamp = new Date().toISOString();
 	const remote_ip = req.connection.remoteAddress || req.socket.remoteAddress;
 	// pretty much just like in request_gamewebtoken handler
-	const hostname = req.headers.origin
+	let hostname = req.headers.origin
 					? new URL(req.headers.origin).hostname
 					: req.authority || req.headers.host;
 	//const status_code = res.statusCode; // this is excluded for now
 	const user_agent = req.headers['user-agent'] || '-';
-	const scheme = req.scheme || 'http' + (req.socket.encrypted ? 's' : '')
+	const scheme = req.scheme || 'http' + (req.socket.encrypted ? 's' : '');
 
-	console.log(`[${timestamp}] ${remote_ip} - "${req.method} ${scheme}://${hostname}${req.url} HTTP/${req.httpVersion}" - "${user_agent}"`);
+	// neutral color that will be used to reset
+	// color all access logs dim
+	const neutral = '\x1b[2m';
+	// color code the hostname...
+	if(hostname === ZNC_HOSTNAME
+	|| hostname === NA_HOSTNAME
+	) {
+		// nso intercept hostnames, green
+		hostname = `\x1b[32m${hostname}\x1b[0m${neutral}`;
+	} else if(hostname.endsWith(webServiceProbableSuffix)) {
+		// any other nintendo.net domain (nso service), red
+		hostname = `\x1b[31m${hostname}\x1b[0m${neutral}`;
+	}
+
+	console.log(`${neutral}[${timestamp}] ${remote_ip} - "${req.method} ${scheme}://${hostname}${req.url} HTTP/${req.httpVersion}" - "${user_agent}"\x1b[0m`);
 }
 
 module.exports = {

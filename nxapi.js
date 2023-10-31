@@ -10,12 +10,19 @@ let nsoUserID;
 
 // NOTE: imported from main poly.js
 let cache;
-async function nxapiInit(mainCache) {
+async function nxapiInit(mainCache, usernsid) {
 	cache = mainCache;
 	// required to make http_proxy work here
 	//const { setGlobalDispatcher } = require('undici');
 	console.log('initializing nxapi (may fail right now)...');
 	const nxapiExport = require.resolve('nxapi');
+	// cli entry for reference
+	const cliEntry = join(nxapiExport, '../../cli-entry.js');
+	if(usernsid === 'help') {
+		console.log('\n\x1b[31mif you need to see the usernsids you are logged in to/are usable,\x1b[0m try running this:');
+		console.log(`${cliEntry} users list\ncontinuing with default usernsid...\n`);
+		usernsid = undefined;
+	}
 	// import() wrapper for paths within nxapi dist..!! (join = path.join btw)
 	const nxapiInternal = m => import(join(nxapiExport, '../../' + m));
 	await Promise.all([
@@ -50,15 +57,18 @@ async function nxapiInit(mainCache) {
 	// some of these are now persisted throughout functions
 	// TODO: lock storage behind a mutex?
 	storage = await initStorage(paths.data);
-	// TODO: here, select usernsid from CLI
-	usernsid = await storage.getItem('SelectedUser');
+	// usernsid passed through yargs argv is used first
+	if(usernsid !== undefined) {
+		console.log('\x1b[1myou specified your own usernsid, make sure you\'re logged in with this on nxapi. if you need help, specify "help" in place of the usernsid. otherwise you may see failure below:\x1b[0m');
+	} else {
+		usernsid = await storage.getItem('SelectedUser');
+	}
 	// if SelectedUser is undefined then persist is most likely unpopulated
 	// process exits here because we are not going anywhere.
-	if(usernsid === undefined) {
+	if(!usernsid) {
 		// nxapi is not authenticated/set up!! instruct user to run nso auth
-		console.log('\x1b[31mno selected user: \x1b[1mnxapi is not authenticated!\x1b[0m try running this:')
-		const cliEntry = join(nxapiExport, '../../cli-entry.js');
-		console.log(`\x1b[2m${cliEntry} nso auth\x1b[0m\nyou should also be able to log into the nxapi desktop app? try that and come back.\nexiting`)
+		console.log('\x1b[31mno selected user: \x1b[1mnxapi is not authenticated!\x1b[0m try running this:');
+		console.log(`\x1b[2m${cliEntry} nso auth\x1b[0m\nyou should also be able to log into the nxapi desktop app? try that and come back.\nexiting`);
 		process.exit(1);
 	}
 	console.log(`nxapi selected usernsid: \x1b[1m${usernsid}\x1b[0m`);
@@ -126,7 +136,7 @@ async function setCachedWebServiceToken(webserviceID, token, yourUserNSID=undefi
 }
 
 async function getWebServiceToken(webserviceID) {
-	console.log(`grabbing a webservicetoken for id: \x1b[1m{webserviceID}\x1b[0m`);
+	console.log(`\x1b[35mgrabbing\x1b[0m a webservicetoken for id: \x1b[1m${webserviceID}\x1b[0m`);
 	// redo getting storage and user all over again
 	// ... but this stuff SHOULD be cached.
 	/*const storage = await initStorage(paths.data);
@@ -138,21 +148,22 @@ async function getWebServiceToken(webserviceID) {
 	const cacheResult = cache.getSync(cacheKey);
 	if(cacheResult) {
 		const expiryDelta = cacheResult.tokenExpiry - Date.now();
+		console.log(`\x1b[32mcache\x1b[0m: expiry delta in secs: ${(expiryDelta / 1000)}`)
 		// if expiry was reached then this will probably be negative
 		if(expiryDelta > 0) {
-			console.log(`fetched token for ${webserviceID} from \x1b[32mcache\x1b[0m`);
+			console.log(`\x1b[36mfetched\x1b[0m token for id: \x1b[1m${webserviceID}\x1b[0m from \x1b[32mcache\x1b[0m`);
 			return cacheResult.accessToken;
 		} else {
 			// failed case: there is a cache but it expired (want to log this)
 			// expiryDelta should be in milliseconds..?
-			console.log(`\x1b[31mcached webservicetoken expired ${expiryDelta / 1000} seconds ago...\x1b[0m`);
+			console.log(`\x1b[31mcached webservicetoken expired ${-1 * (expiryDelta / 1000)} seconds ago...\x1b[0m`);
 		}
 	}
 	//if(cacheResult.tokenExpiry < Date.now()) { console.log('cache expired...') }
 	const { nso } = await getToken(storage, naToken);
 	let webServiceToken = await nso.getWebServiceToken(webserviceID);
 	setCachedWebServiceToken(webserviceID, webServiceToken, usernsid);
-	console.log(`fetched token for ${webserviceID} from \x1b[31mgetWebServiceToken()\x1b[0m`);
+	console.log(`\x1b[36mfetched\x1b[0m token for ${webserviceID} from \x1b[31mgetWebServiceToken()\x1b[0m`);
 	// log if there is no cached webservicetoken as opposed to it having expired
 	if(!cacheResult) {
 		console.log(`\x1b[31m(there is no cached webservicetoken)\x1b[0m`)
@@ -203,7 +214,7 @@ async function getTokenInterceptHandler(data, reqBodyObj, _) {
 	}
 	// write back data...
 	storage.setItem(cacheKey, nsoTokenData);
-	console.log('set nso token cache...');
+	//console.log('set nso token cache...')
 }
 
 module.exports = {

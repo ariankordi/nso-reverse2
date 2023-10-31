@@ -1,33 +1,5 @@
 <head><script>
 // handles nso app-specific functions
-// really these should all be handled server-side
-// persistentstorage should use the server, and
-// requestgamewebtoken especially should
-// but these will work for now, along with
-// manually assigning a gamewebtoken
-
-/*// if the current params aren't what they are above, add them and refresh
-if(window.document.location.search !== queryParamsShouldBe) {
-	window.document.location.search = queryParamsShouldBe;
-}*/
-
-// ditched for storing in a cookie
-/*
-const persistentDataRepresentation = {
-	// skips walkthrough
-	marked: true,
-
-	// my userid. todo remove this if i release this or something i do'nt know
-	userId: '0x'
-
-	// persistent data will also contain language-country
-	// code as in the lang query parameter but it's only
-	// stored when the language is changed, example:
-	//language: 'en-GB'
-};
-*/
-
-//document.cookie = '_gtoken=' + gtoken;
 
 // game token (x-gamewebtoken) request
 window.requestGameWebToken = () => {

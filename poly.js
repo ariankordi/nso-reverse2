@@ -95,7 +95,7 @@ const coralAPIInterceptionHandlers = {
 		// sometimes response is an error and there is no result
 		if(data.result !== undefined) {
 			setCachedWebServiceToken(webserviceID, data.result);
-			console.log(`set webservicetoken cache for id: \x1b[1m{webserviceID}\x1b[0m...`);
+			console.log(`set webservicetoken cache for id: \x1b[1m${webserviceID}\x1b[0m, expires in \x1b[32m${data.result.expiresIn}\x1b[0m secs`);
 		} else {
 			console.log('GetWebServiceToken response does not have result...');
 		}
@@ -110,7 +110,7 @@ const coralAPIInterceptionHandlers = {
 			console.log('no access token in nintendo account response...???');
 			return;
 		}
-		console.log('set nintendo account token cache...');
+		console.log('set latest na token response cache...');
 		// async once again (NO CALLBACK) ... NOTE: may cause race condition?
 		cache.put('latest-na-token-response', data, ()=>{});
 	}
@@ -300,6 +300,24 @@ async function requestHandler(req, res) {
 		// use our callback to always intercept and check response headers
 		return handleReverseProxy(req, hostname, webServiceCallback(res));
 	}
+	// if no other matches, serve PAC file dynamically based on server hostname
+	if(req.url.endsWith('.pac')) {
+		// generates bool || statements to match on
+		// only intercept na hosts and not services for this
+		const hostnameMap = [ZNC_HOSTNAME, NA_HOSTNAME];
+		let hostMatches = hostnameMap.map(hostname => `dnsDomainIs(host, "${hostname}")`).join(' || ');
+
+		// assumes this server is http proxy (and is not nginx or something)
+		// and if hostname includes port number
+		return res.end(`
+		function FindProxyForURL(url, host) {
+			if (${hostMatches}) {
+				return "PROXY ${req.headers.host}";
+			}
+			return "DIRECT";
+		}`);
+		// TODO specifying port there, that may need review
+	}
 	/* for testing..!!
 	if(hostname === 'ipinfo.io'
 	|| hostname === 'mii-secure.cdn.nintendo.net'
@@ -348,16 +366,15 @@ const argv = yargs(hideBin(process.argv))
 	.option('port', { type: 'number', default: 8443 })
 	.option('key', { default: __dirname + '/nintendo-net.key' })
 	.option('cert', { default: __dirname + '/nintendo-net.pem' })
-	// TODO IMPLEMENT THIS IMPLEMENT THIS IMPLEM
-	/*.option('usernsid', {
-		description: 'usernsid passed to nxapi instead of stored one',
-	})*/
+	.option('usernsid', {
+		description: 'usernsid that you want to use instead of the nxapi "SelectedUser". specify the word "help" to this argument if you want to see which users you can pick',
+	})
 	.command('make-san', 'this will make a san.txt that you can use to generate certs. just run it, i\'ll explain everything')
 	.help()
 	.argv;
 
-// do nxapi init FIRST!
-nxapiInit(cache).then(initParams => {
+// do nxapi init FIRST! usernsid may be undefined
+nxapiInit(cache, argv.usernsid).then(initParams => {
 	webServiceMap = initParams.webServiceMap;
 	naURLParts = initParams.naURLParts;
 	// TODO: finish this, print out a san.txt usable for signing certificates and FULL INSTRUCTIONS with openssl on how to do this!!
@@ -380,8 +397,11 @@ nxapiInit(cache).then(initParams => {
 	}, requestHandler);//errorHandlerWrapper(requestHandler))
 	// resolve HTTP CONNECT to httpolyglot handler (probably as TLS)
 	server.on('connect', (_, socket) => {
+		// TODO: handle PASSING THROUGH SOCKETS WITHOUT DECRYPTION
+		// ... for any hosts outside of hostnameMap (LOCAL SERVING WILL NOT USE "CONNECT")
 		socket.write('HTTP/1.1 200 Connection established\r\n\r\n');
 		// Recurse back and handle TLS (Client sent ClientHello)
+		// NOTE: not sure on if this works with HTTPS proxy through HTTPS
 		socket._server.connectionListener(socket);
 	})
 	if(process.env.LISTEN_FDS) {

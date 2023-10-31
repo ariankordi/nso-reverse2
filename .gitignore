@@ -3,3 +3,6 @@ GITIGNORE THIS old planning notes
 
 *.pem
 *.key
+
+*.kate-swp
+*.swp
