@@ -10,8 +10,15 @@ const {
 	wrapCompressedResponse,
 	handleReverseProxy,
 	pipeResponseCallback,
-	logAccess,
 } = require('./reverse-proxy-helpers.js');
+
+// this will later be nopped out
+let { logAccess } = require('./reverse-proxy-helpers.js');
+
+const {
+	ZNC_HOSTNAME,
+	NA_HOSTNAME
+} = require('./consts.js');
 
 const {
 	nxapiInit,
@@ -174,8 +181,6 @@ const coralAPICallback = (res, reqBody, interceptionHandler) => {
 // requests over this size will stop being buffered
 const MAX_REQUEST_BODY_SIZE = 1 * 1024 * 1024; // 1 MB
 
-const ZNC_HOSTNAME = 'api-lp1.znc.srv.nintendo.net';
-const NA_HOSTNAME = 'accounts.nintendo.com';
 async function requestHandler(req, res) {
 	// test if this is an http proxy request and not a normal one
 	if(req.url[0] !== '/') {
@@ -183,7 +188,8 @@ async function requestHandler(req, res) {
 		// set custom property authority to the real hostname
 		// NOTE: url.host contains port while url.hostname does not
 		req.authority = url.hostname;
-		req.url = url.pathname;
+		// pathname does not contain query unlike how href contains both
+		req.url = url.pathname + url.search;
 	}
 	logAccess(req);
 	if(req.url === '/_/request_gamewebtoken') {
@@ -305,7 +311,7 @@ async function requestHandler(req, res) {
 		// generates bool || statements to match on
 		// only intercept na hosts and not services for this
 		const hostnameMap = [ZNC_HOSTNAME, NA_HOSTNAME];
-		let hostMatches = hostnameMap.map(hostname => `dnsDomainIs(host, "${hostname}")`).join(' || ');
+		let hostMatches = hostnameMap.map(hostname => `localHostOrDomainIs(host, "${hostname}")`).join(' || ');
 
 		// assumes this server is http proxy (and is not nginx or something)
 		// and if hostname includes port number
@@ -364,6 +370,9 @@ const { hideBin } = require('yargs/helpers');
 const argv = yargs(hideBin(process.argv))
 	.option('host', { default: 'localhost' })
 	.option('port', { type: 'number', default: 8443 })
+	.option('access-logs', { type: 'bool',
+		description: 'set --no-access-logs if you do not want access logs, does not disable other kinds of logs'
+	})
 	.option('key', { default: __dirname + '/nintendo-net.key' })
 	.option('cert', { default: __dirname + '/nintendo-net.pem' })
 	.option('usernsid', {
@@ -386,6 +395,11 @@ nxapiInit(cache, argv.usernsid).then(initParams => {
 		console.error(sans);
 		console.log('\n\n\x1b[1mopen your ssl\x1b[0m');
 		return;
+	}
+	if(argv.accessLogs !== undefined) {
+		// nop out access log function
+		logAccess = () => {};
+		console.log('\x1b[31maccess logs are disabled\x1b[0m');
 	}
 	// NOTE: THIS LIB IS MONKEY PATCHED (import at top)
 	const server = httpolyglot.createServer({

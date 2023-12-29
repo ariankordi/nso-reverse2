@@ -2,6 +2,11 @@ const http2 = require('http2-wrapper');
 // gunzip responses
 const zlib = require('zlib');
 
+const {
+	ZNC_HOSTNAME,
+	NA_HOSTNAME,
+	webServiceProbableSuffix
+} = require('./consts.js');
 
 // exclude these headers from BOTH responses and requests
 const excludeHeaders = [
@@ -106,11 +111,6 @@ const wrapCompressedResponse = (response, headers) => {
 	return response;
 }
 
-// TODO: not imported from the same place
-const ZNC_HOSTNAME = 'api-lp1.znc.srv.nintendo.net';
-const NA_HOSTNAME = 'accounts.nintendo.com';
-// if a hostname ends with this, then it's most probably a web service
-const webServiceProbableSuffix = '.nintendo.net';
 // print access log line for use in requestHandler
 function logAccess(req) {
 	const timestamp = new Date().toISOString();
@@ -132,6 +132,7 @@ function logAccess(req) {
 	) {
 		// nso intercept hostnames, green
 		hostname = `\x1b[32m${hostname}\x1b[0m${neutral}`;
+	// if a hostname ends with this, then it's most probably a web service
 	} else if(hostname.endsWith(webServiceProbableSuffix)) {
 		// any other nintendo.net domain (nso service), red
 		hostname = `\x1b[31m${hostname}\x1b[0m${neutral}`;

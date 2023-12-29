@@ -1,8 +1,7 @@
 lingering things left in nso-reverse2:
 
-* allow disabling access logs
-	* and use same consts there (may be challenging... circular dep)
 * finish and make a tutorial on the sans command
+	* detect if nintendo-net.key, nintendo-net.pem fail to be detected
 	* make it run openssl by itself!!!!!! perhaps detect mitmproxy CA
 * tackle the rest of the todos, mostly HANDLING MORE ERRORS, where necessary
 * rename poly.js to index.js and make it the entrypoint of the package so it is clearer where THE CODE IS!
